@@ -36,6 +36,9 @@ ln migrate.sh /bin
 ./migrate.sh \
 	--local-folder-temp ~/temp_migration/ \
 	--local-folder-migrate /var/www/domain/web \
+	--local-backup-remove true \
+	--remote-backup-remove true \
+	--remote-folder-clean false \
 	--remote-folder-migrate /var/www/domain/web \
 	--remote-ssh-user-server user@remoteserver \
 	--remote-ssh-port 22 \

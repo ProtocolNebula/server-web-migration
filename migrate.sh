@@ -68,8 +68,8 @@ OPTIONS
 	FOLDERS
 	-s | --local-folder-migrate		
 	-d | --remote-folder-migrate
-	--remote-folder-clean			DEFAULT: ${remoteFolderClean} - Clean remote folder before copy files
 	--local-backup-remove			DEFAULT: ${localBackupRemove} - Remove local backup files after success
+	--remote-folder-clean			DEFAULT: ${remoteFolderClean} - Clean remote folder before copy files
 	--remote-backup-remove			DEFAULT: ${remoteBackupRemove} - Remove remote backup files after success
 
 	DATABASE (MYSQL)
@@ -84,7 +84,10 @@ EXAMPLE:
 	$0 \\
 		--local-folder-temp ~/temp_migration/ \\ 	# DEFAULT PARAMETER
 		--local-folder-migrate /var/www/domain/web \\
+		--local-backup-remove true \\
+		--remote-folder-clean false \\
 		--remote-folder-migrate /var/www/domain/web \\
+		--remote-backup-remove true \\
 		--remote-ssh-user-server user@remoteserver \\
 		--remote-ssh-port 22 \\
 		-i ~/.ssh/id_rsa \\
