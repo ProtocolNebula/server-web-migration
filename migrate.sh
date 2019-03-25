@@ -16,6 +16,7 @@
 # LOCAL folder settings
 localFolderTemp=~/temp_migration/
 localFolderMigrate=
+localBackupRemove=true
 
 # LOCAL mysql settings 
 localDatabaseHost=localhost
@@ -31,6 +32,8 @@ remoteSSHPort=22
 
 # REMOTE Folder settings
 remoteFolderWWW=
+remoteFolderClean=false
+remoteBackupRemove=true
 
 # REMOTE MySQL settings (once connected via ssh)
 remoteDatabaseHost=localhost
@@ -65,6 +68,9 @@ OPTIONS
 	FOLDERS
 	-s | --local-folder-migrate		
 	-d | --remote-folder-migrate
+	--remote-folder-clean			DEFAULT: ${remoteFolderClean} - Clean remote folder before copy files
+	--local-backup-remove			DEFAULT: ${localBackupRemove} - Remove local backup files after success
+	--remote-backup-remove			DEFAULT: ${remoteBackupRemove} - Remove remote backup files after success
 
 	DATABASE (MYSQL)
 	--local-db-user
@@ -104,14 +110,29 @@ fi
 while [[ "$1" != "" ]]; do
 	case $1 in
 		# Local Folder Settings
-		-t | --temp-folder )
+		-t | --local-folder-temp )
 			shift
-			tempFolder=$1
+			localFolderTemp=$1
 			;;
 
 		-s | --local-folder-migrate )
 			shift
 			localFolderMigrate=$1
+			;;
+
+		--remote-folder-clean )
+			shift
+			remoteFolderClean=$1
+			;;
+
+		--local-backup-remove )
+			shift
+			localBackupRemove=$1
+			;;
+
+		--remote-backup-remove )
+			shift
+			remoteBackupRemove=$1
 			;;
 
 		# Local MySQL Settings
@@ -197,6 +218,10 @@ echo -e "Starting migration...\n"
 ## Check all minimal settings
 if [ -z "$localFolderTemp" ]; then
 	echo 'Local folder temp not defined'; exit 2;
+elif [[ -n "$localFolderMigrate" && "$localFolderMigrate" = "$localFolderTemp" ]]; then
+	echo 'CAUTION: Local folder TEMP must be different than MIGRATE folder';
+	echo 'Temp folder will be empty before backup start';
+	exit 2;
 elif [[ -z "$localFolderMigrate" && -z "$localDatabaseName" ]]; then
 	echo 'No --local-folder-migrate or --local-db-name defined'; exit 2;
 elif [ -n "$remoteSSHUserAndServer" ]; then
@@ -221,8 +246,9 @@ ZIP_FILE_NAME=web.zip
 ZIP_FILE_PATH=${localFolderTemp}${ZIP_FILE_NAME}
 
 # Dump and ZIP SQL
+DB_FILE_NAME=DB_TO_MIGRATE.sql
+DB_FILE_PATH=${localFolderTemp}/${DB_FILE_NAME}
 if [ -n "$localDatabaseName" ]; then
-	DB_FILE_PATH=${localFolderTemp}/DB_TO_MIGRATE.sql
 	echo "Dumping MySQL database (${localDatabaseName})"
 	mysqldump \
 	       	-h ${localDatabaseHost} \
@@ -273,7 +299,7 @@ SCP_COMMAND="${SCP_COMMAND} \
 	${remoteSSHUserAndServer}:${remoteFolderWWW}"
 
 # Execute final SCP command
-#$(${SCP_COMMAND})
+$(${SCP_COMMAND})
 
 echo "Files sended successfully"
 
@@ -300,6 +326,12 @@ ${SSH_COMMAND} << EOF
 	# Move to remote folder
 	cd ${remoteFolderWWW};
 
+	# Remote folder clean before restore
+	if [ "$remoteFolderClean" = true ]; then
+		echo "Cleaning remote folder"
+		rm -rf !\("${ZIP_FILE_NAME}"\)
+	fi
+
 	# Unzip file (contain web/mysql)
 	unzip -u -q ${ZIP_FILE_NAME};
 
@@ -310,9 +342,21 @@ ${SSH_COMMAND} << EOF
 			-u ${remoteDatabaseUser} \
 			--password=${remoteDatabasePasswiord} \
 			${remoteDatabaseName} \
-			< DB_TO_MIGRATE.sql
+			< ${DB_FILE_NAME}
+	fi
+
+	# Remote backup files remove
+	if [ "$remoteBackupRemove" = true ]; then
+		echo "Removing remote backup files"
+		rm -rf ${ZIP_FILE_NAME} ${DB_FILE_NAME}
 	fi
 EOF
 
-echo 'Migration success'
+# Local backup files remove
+if [ "$remoteBackupRemove" = true ]; then
+	echo "Removing local backup files"
+	rm -rf ${ZIP_FILE_PATH} ${DB_FILE_PATH}
+fi
+
+echo "Migration success"
 
