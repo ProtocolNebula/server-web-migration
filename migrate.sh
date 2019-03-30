@@ -343,7 +343,7 @@ ${SSH_COMMAND} << EOF
 		mysql \
 			-h ${remoteDatabaseHost} \
 			-u ${remoteDatabaseUser} \
-			--password=${remoteDatabasePasswiord} \
+			--password=${remoteDatabasePassword} \
 			${remoteDatabaseName} \
 			< ${DB_FILE_NAME}
 	fi
