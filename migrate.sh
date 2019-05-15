@@ -336,7 +336,7 @@ ${SSH_COMMAND} << EOF
 	fi
 
 	# Unzip file (contain web/mysql)
-	unzip -u -q ${ZIP_FILE_NAME};
+	unzip -u -o -q ${ZIP_FILE_NAME};
 
 	# Import mysql if db file
 	if [ -n "$remoteDatabaseName" ]; then
