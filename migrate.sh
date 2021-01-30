@@ -13,6 +13,11 @@
 
 ## DEFAULT SETTINGS
 
+# Main settings
+compressFiles=false
+# Client to do the copy, available: rsync | scp
+sshClient=rsync
+
 # LOCAL folder settings
 localFolderTemp=~/temp_migration/
 localFolderMigrate=
@@ -59,6 +64,8 @@ You can do:
 OPTIONS
 	GENERAL
 	--local-folder-temp			DEFAULT: ${localFolderTemp}
+	--compress-files			DEFAULT: false - Compress files in zip format instead copying directly 
+	--ssh-client				DEFAULT: rsync - rsync or SCP
 
 	SSH SETTINGS
 	--remote-ssh-user-server
@@ -82,6 +89,7 @@ OPTIONS
 
 EXAMPLE:
 	$0 \\
+		--compress-files false \\
 		--local-folder-temp ~/temp_migration/ \\ 	# DEFAULT PARAMETER
 		--local-folder-migrate /var/www/domain/web \\
 		--local-backup-remove true \\
@@ -116,6 +124,16 @@ while [[ "$1" != "" ]]; do
 		-t | --local-folder-temp )
 			shift
 			localFolderTemp=$1
+			;;
+
+		--compress-files )
+			shift
+			compressFiles=$1
+			;;
+
+		--ssh-client )
+			shift
+			sshClient=$1
 			;;
 
 		-s | --local-folder-migrate )
@@ -238,6 +256,69 @@ elif [ -n "$remoteSSHUserAndServer" ]; then
 fi;
 
 
+# Functions
+
+# $1 = SRC: source file/folder
+# $2 = DST: remote file/folder (relative to home directory)
+# $3 = ISFOLDER: Is folder? (copy recursive)
+sshCopy () {
+	SRC=$1
+	DST=$2
+	ISFOLDER=$3
+
+	if [ $sshClient == "scp" ]; then
+		# Prepare base SCP command to copy files
+		SCP_COMMAND="scp -P ${remoteSSHPort}"
+
+		# Set private key if specified
+		if [ -n "$remoteSSHPrivateKeyFile" ]; then
+			SCP_COMMAND="${SCP_COMMAND} \
+			-i ${remoteSSHPrivateKeyFile}"
+		fi
+
+		if [ $ISFOLDER == "true" ]; then
+			SCP_COMMAND="${SCP_COMMAND} \
+				${SRC}"
+		else
+			SCP_COMMAND="${SCP_COMMAND} \
+				-rp ${SRC}/*"
+		fi
+
+		# Set files and folders to SCP
+		SCP_COMMAND="${SCP_COMMAND} \
+			${remoteSSHUserAndServer}:${DST}"
+
+		# Execute final SCP command
+		echo Executing $SCP_COMMAND
+		${SCP_COMMAND}
+
+	elif [ $sshClient == "rsync" ]; then
+		# -e parameter not works correctly passed as function, so RSYNC_RSH is exported (will be read by rsync as -e)
+		export RSYNC_RSH="ssh -p ${remoteSSHPort}"
+
+		# Prepare to copy as files, copying onlyu if files not exist or are different
+		RSYNC_COMMAND="rsync -Pau"
+
+		# Set private key if specified
+		if [ -n "$remoteSSHPrivateKeyFile" ]; then
+			export RSYNC_RSHRSYNC_RSH="${RSYNC_RSH} -i ${remoteSSHPrivateKeyFile}"
+		fi
+
+		RSYNC_COMMAND="${RSYNC_COMMAND} \
+			${SRC} \
+			${remoteSSHUserAndServer}:${DST}"
+
+		# Execute final SCP command
+		echo Executing $RSYNC_COMMAND
+		${RSYNC_COMMAND}
+	else
+		echo "SSH Client not found"
+		exit 1
+	fi
+
+}
+
+
 echo "Create / Wipe temporal folder (${localFolderTemp})"
 mkdir -p ${localFolderTemp}
 rm -rf ${localFolderTemp}/{.[!.],}*
@@ -265,7 +346,7 @@ fi
 
 # ZIP SQL + files
 
-if [ -n "$localFolderMigrate" ]; then
+if [[ -n "$localFolderMigrate" && $compressFiles == "true" ]]; then
 	echo "Compressing folder to migrate"
 	# Zip file from content folder to remove parent path in zip file
 	(cd ${localFolderMigrate} && \
@@ -287,22 +368,19 @@ fi
 
 echo "Sending files to remote server"
 
-# Prepare base SCP command to copy files
-SCP_COMMAND="scp -P ${remoteSSHPort}"
+# Set * to match also hidden files
+shopt -s dotglob
 
-# Set private key if specified
-if [ -n "$remoteSSHPrivateKeyFile" ]; then
-	SCP_COMMAND="${SCP_COMMAND} \
-	-i ${remoteSSHPrivateKeyFile}"
+if [ $compressFiles == "true" ]; then
+	sshCopy $ZIP_FILE_PATH $remoteFolderWWW false
+else
+	if [ -n "$localFolderMigrate" ]; then
+		sshCopy "$localFolderMigrate/*" "$remoteFolderWWW" true
+	fi
+	if [ -n "$localDatabaseName" ]; then
+		sshCopy "${DB_FILE_PATH}" "$remoteFolderWWW" false
+	fi
 fi
-
-# Set files and folders to SCP
-SCP_COMMAND="${SCP_COMMAND} \
-	${ZIP_FILE_PATH} \
-	${remoteSSHUserAndServer}:${remoteFolderWWW}"
-
-# Execute final SCP command
-$(${SCP_COMMAND})
 
 echo "Files sended successfully"
 
@@ -330,13 +408,15 @@ ${SSH_COMMAND} << EOF
 	cd ${remoteFolderWWW};
 
 	# Remote folder clean before restore
-	if [ "$remoteFolderClean" = true ]; then
+	if [[ $compressFiles == "true" && $remoteFolderClean == true ]]; then
 		echo "Cleaning remote folder"
-		rm -rf !\("${ZIP_FILE_NAME}"\)
+		rm -rf !\("${ZIP_FILE_NAME}"\)9$0	150		
 	fi
 
-	# Unzip file (contain web/mysql)
-	unzip -u -o -q ${ZIP_FILE_NAME};
+	if [ $compressFiles == "true" ]; then
+		# Unzip file (contain web/mysql)
+		unzip -u -o -q ${ZIP_FILE_NAME};
+	fi
 
 	# Import mysql if db file
 	if [ -n "$remoteDatabaseName" ]; then
